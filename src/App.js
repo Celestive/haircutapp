@@ -120,6 +120,7 @@ function App() {
         <h1>ระบบจัดการคิวร้านตัดผม</h1>
       </div>
 
+      {/* form input + add button */}
       <div className="form">
         <input
           className="input"
