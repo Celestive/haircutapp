@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { db } from "./firebase";
 import {
   collection,
@@ -33,17 +33,19 @@ function App() {
   const [selectedYear, setSelectedYear] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
 
-  // --- settings state ---
   const [availableSlots, setAvailableSlots] = useState([]);
   const [disabledSlots, setDisabledSlots] = useState([]);
 
   const todayStr = getTodayDateStr();
 
+  // state สำหรับ popup แจ้งเตือน
+  const [showSuccess, setShowSuccess] = useState(false);
+  const audioRef = useRef(null);
+
   useEffect(() => {
     document.body.className = `theme-${theme}`;
   }, [theme]);
 
-  // โหลด queue
   useEffect(() => {
     const colRef = collection(db, "queue");
     let q = query(colRef);
@@ -109,7 +111,6 @@ function App() {
     return () => unsubscribe();
   }, [filter, searchName, selectedMonth, selectedYear, sortOrder]);
 
-  // โหลด settings ของวัน
   useEffect(() => {
     const loadSettings = async () => {
       const ref = doc(db, "settings", todayStr);
@@ -126,7 +127,6 @@ function App() {
     loadSettings();
   }, [todayStr]);
 
-  // --- functions ---
   const addQueue = async () => {
     if (!name || !time) return alert("กรอกข้อมูลให้ครบ");
 
@@ -176,12 +176,35 @@ function App() {
       availableSlots,
       disabledSlots,
     });
-    alert("บันทึกเรียบร้อย");
+    setShowSuccess(true);
+    if (audioRef.current) {
+      audioRef.current.play();
+    }
   };
 
-  // --- UI ---
   return (
     <div className="app-container">
+      {/* popup แจ้งเตือน */}
+      {showSuccess && (
+        <div className="modal-overlay">
+          <div className="modal-box">
+            <div className="checkmark-animation">
+              <svg viewBox="0 0 52 52">
+                <circle className="checkmark-circle" cx="26" cy="26" r="25" />
+                <path className="checkmark-check" d="M14 27l7 7 16-16" />
+              </svg>
+            </div>
+            <h2>บันทึกข้อมูลแล้ว</h2>
+            <button className="btn-ok" onClick={() => setShowSuccess(false)}>
+              ตกลง
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* เสียง effect */}
+      <audio ref={audioRef} src="/wink.mp3" preload="auto" />
+
       <div className="theme-switcher">
         <button onClick={() => setTheme("light")}>Light</button>
         <button onClick={() => setTheme("dark")}>Dark</button>
