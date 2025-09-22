@@ -10,8 +10,16 @@ import {
   query,
   where,
   serverTimestamp,
+  getDoc,
+  setDoc,
 } from "firebase/firestore";
 import "./App.css";
+
+const slotConfig = {
+  morning: ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00"],
+  afternoon: ["13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00"],
+  evening: ["17:00", "17:30", "18:00", "18:30", "19:00"],
+};
 
 function App() {
   const [queue, setQueue] = useState([]);
@@ -25,10 +33,17 @@ function App() {
   const [selectedYear, setSelectedYear] = useState("");
   const [sortOrder, setSortOrder] = useState("asc");
 
+  // --- settings state ---
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [disabledSlots, setDisabledSlots] = useState([]);
+
+  const todayStr = getTodayDateStr();
+
   useEffect(() => {
     document.body.className = `theme-${theme}`;
   }, [theme]);
 
+  // โหลด queue
   useEffect(() => {
     const colRef = collection(db, "queue");
     let q = query(colRef);
@@ -41,18 +56,30 @@ function App() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       let data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      if (filter === "month" || filter === "year" || (selectedYear && selectedMonth !== "")) {
+      if (
+        filter === "month" ||
+        filter === "year" ||
+        (selectedYear && selectedMonth !== "")
+      ) {
         data = data.filter((d) => {
           if (!d.date) return false;
           const [day, month, year] = d.date.split("/").map((x) => parseInt(x));
           const now = new Date();
 
-          if (filter === "month") return month === now.getMonth() + 1 && year === now.getFullYear() + 543;
-          if (filter === "year") return year === now.getFullYear() + 543;
+          if (
+            filter === "month" &&
+            month === now.getMonth() + 1 &&
+            year === now.getFullYear() + 543
+          )
+            return true;
+          if (filter === "year" && year === now.getFullYear() + 543) return true;
           if (selectedYear && selectedMonth !== "") {
-            return year === parseInt(selectedYear) && month === parseInt(selectedMonth) + 1;
+            return (
+              year === parseInt(selectedYear) &&
+              month === parseInt(selectedMonth) + 1
+            );
           }
-          return true;
+          return false;
         });
       }
 
@@ -82,6 +109,24 @@ function App() {
     return () => unsubscribe();
   }, [filter, searchName, selectedMonth, selectedYear, sortOrder]);
 
+  // โหลด settings ของวัน
+  useEffect(() => {
+    const loadSettings = async () => {
+      const ref = doc(db, "settings", todayStr);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const data = snap.data();
+        setAvailableSlots(data.availableSlots || []);
+        setDisabledSlots(data.disabledSlots || []);
+      } else {
+        setAvailableSlots(Object.values(slotConfig).flat());
+        setDisabledSlots([]);
+      }
+    };
+    loadSettings();
+  }, [todayStr]);
+
+  // --- functions ---
   const addQueue = async () => {
     if (!name || !time) return alert("กรอกข้อมูลให้ครบ");
 
@@ -107,6 +152,34 @@ function App() {
     await deleteDoc(ref);
   };
 
+  const togglePeriod = (period) => {
+    const slots = slotConfig[period];
+    const allIncluded = slots.every((s) => availableSlots.includes(s));
+    if (allIncluded) {
+      setAvailableSlots((prev) => prev.filter((s) => !slots.includes(s)));
+    } else {
+      setAvailableSlots((prev) => [...new Set([...prev, ...slots])]);
+    }
+  };
+
+  const toggleSlot = (slot) => {
+    if (!availableSlots.includes(slot)) return;
+    if (disabledSlots.includes(slot)) {
+      setDisabledSlots((prev) => prev.filter((s) => s !== slot));
+    } else {
+      setDisabledSlots((prev) => [...prev, slot]);
+    }
+  };
+
+  const saveSettings = async () => {
+    await setDoc(doc(db, "settings", todayStr), {
+      availableSlots,
+      disabledSlots,
+    });
+    alert("บันทึกเรียบร้อย");
+  };
+
+  // --- UI ---
   return (
     <div className="app-container">
       <div className="theme-switcher">
@@ -118,6 +191,74 @@ function App() {
       <div className="app-title">
         <div className="app-badge">✂️</div>
         <h1>ระบบจัดการคิวร้านตัดผม</h1>
+      </div>
+
+      {/* Admin Settings */}
+      <div className="admin-settings" style={{ marginBottom: 24 }}>
+        <h2>ตั้งค่าเวลาเปิด-ปิด ({todayStr})</h2>
+        {Object.keys(slotConfig).map((period) => {
+          const slots = slotConfig[period];
+          const allIncluded = slots.every((s) => availableSlots.includes(s));
+
+          return (
+            <div key={period} style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <h3>{period}</h3>
+
+                {/* Toggle iOS Style */}
+                <label className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={allIncluded}
+                    onChange={() => togglePeriod(period)}
+                  />
+                  <span className="slider"></span>
+                </label>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginTop: 8,
+                }}
+              >
+                {slots.map((slot) => {
+                  const isAvailable = availableSlots.includes(slot);
+                  const isDisabled = disabledSlots.includes(slot);
+
+                  return (
+                    <button
+                      key={slot}
+                      onClick={() => toggleSlot(slot)}
+                      className={`slot-button ${!isAvailable ? "off" : ""}`}
+                      style={{
+                        background: !isAvailable
+                          ? "#9ca3af"
+                          : isDisabled
+                          ? "#ef4444"
+                          : "#10b981",
+                        color: "#fff",
+                      }}
+                    >
+                      {slot}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        <button className="btn btn-add" onClick={saveSettings}>
+          💾 บันทึกการตั้งค่า
+        </button>
       </div>
 
       {/* form input + add button */}
@@ -139,39 +280,62 @@ function App() {
         </button>
       </div>
 
+      {/* filters */}
       <div className="filter-row">
         <div className="filter-bar">
-          <select className="filter-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <select
+            className="filter-select"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          >
             <option value="all">ทั้งหมด</option>
             <option value="today">วันนี้</option>
             <option value="month">เดือนนี้</option>
             <option value="year">ปีนี้</option>
           </select>
 
-          <select className="filter-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+          <select
+            className="filter-select"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+          >
             <option value="">เลือกเดือน</option>
-            <option value="0">มกราคม</option>
-            <option value="1">กุมภาพันธ์</option>
-            <option value="2">มีนาคม</option>
-            <option value="3">เมษายน</option>
-            <option value="4">พฤษภาคม</option>
-            <option value="5">มิถุนายน</option>
-            <option value="6">กรกฎาคม</option>
-            <option value="7">สิงหาคม</option>
-            <option value="8">กันยายน</option>
-            <option value="9">ตุลาคม</option>
-            <option value="10">พฤศจิกายน</option>
-            <option value="11">ธันวาคม</option>
+            {[
+              "ม.ค.",
+              "ก.พ.",
+              "มี.ค.",
+              "เม.ย.",
+              "พ.ค.",
+              "มิ.ย.",
+              "ก.ค.",
+              "ส.ค.",
+              "ก.ย.",
+              "ต.ค.",
+              "พ.ย.",
+              "ธ.ค.",
+            ].map((m, i) => (
+              <option key={i} value={i}>
+                {m}
+              </option>
+            ))}
           </select>
 
-          <select className="filter-select" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
+          <select
+            className="filter-select"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+          >
             <option value="">เลือกปี</option>
             <option value="2023">2023</option>
             <option value="2024">2024</option>
             <option value="2025">2025</option>
           </select>
 
-          <select className="filter-select" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+          <select
+            className="filter-select"
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value)}
+          >
             <option value="asc">เก่าสุดบน</option>
             <option value="desc">ใหม่สุดบน</option>
           </select>
@@ -187,13 +351,18 @@ function App() {
             onChange={(e) => setSearchName(e.target.value)}
           />
           {searchName && (
-            <button className="clear-btn" onClick={() => setSearchName("")} title="ล้าง">
+            <button
+              className="clear-btn"
+              onClick={() => setSearchName("")}
+              title="ล้าง"
+            >
               ❌
             </button>
           )}
         </div>
       </div>
 
+      {/* queue list */}
       <div className="queue-list">
         {queue.map((q) => (
           <div key={q.id} className="card">
@@ -220,13 +389,22 @@ function App() {
               </div>
             </div>
             <div className="actions">
-              <button className="btn-small btn-done" onClick={() => updateStatus(q.id, "done")}>
+              <button
+                className="btn-small btn-done"
+                onClick={() => updateStatus(q.id, "done")}
+              >
                 ✔️ เสร็จแล้ว
               </button>
-              <button className="btn-small btn-wait" onClick={() => updateStatus(q.id, "waiting")}>
+              <button
+                className="btn-small btn-wait"
+                onClick={() => updateStatus(q.id, "waiting")}
+              >
                 ⏳ รอคิว
               </button>
-              <button className="btn-small btn-delete" onClick={() => removeQueue(q.id)}>
+              <button
+                className="btn-small btn-delete"
+                onClick={() => removeQueue(q.id)}
+              >
                 ❌ ลบ
               </button>
             </div>
