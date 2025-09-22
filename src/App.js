@@ -203,7 +203,7 @@ function App() {
       )}
 
       {/* เสียง effect */}
-      <audio ref={audioRef} src="/wink.mp3" preload="auto" />
+      <audio ref={audioRef} src="/wink.wav" preload="auto" />
 
       <div className="theme-switcher">
         <button onClick={() => setTheme("light")}>Light</button>
